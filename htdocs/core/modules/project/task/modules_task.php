@@ -58,7 +58,7 @@ abstract class ModelePDFTask extends CommonDocGenerator
 
 
 /**
- *  Classe mere des modeles de numerotation des references de projets
+ *  Parent class for projects models
  */
 abstract class ModeleNumRefTask extends CommonNumRefGenerator
 {
