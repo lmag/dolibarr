@@ -495,7 +495,10 @@ class Form
 			}
 			$extralanguages->fetch_name_extralanguages('societe');
 
-			if (!is_array($extralanguages->attributes[$object->element]) || empty($extralanguages->attributes[$object->element][$fieldname])) {
+			// ExtraLanguages::fetch_name_extralanguages() leaves $this->attributes empty
+			// when MAIN_USE_ALTERNATE_TRANSLATION_FOR is not configured, so PHP 8 raises
+			// 'Undefined array key' on the read below if we do not guard it (issue #34596).
+			if (empty($extralanguages->attributes[$object->element]) || !is_array($extralanguages->attributes[$object->element]) || empty($extralanguages->attributes[$object->element][$fieldname])) {
 				return ''; // No extralang field to show
 			}
 
@@ -1448,7 +1451,15 @@ class Form
 				$htmltoenteralink .= '<input type="checkbox" name="idtolinkto[' . $key . '_' . $objp->rowid . ']" id="' . $key . '_' . $objp->rowid . '" value="' . $objp->rowid . '">';
 			}
 			$htmltoenteralink .= '</td>';
-			$htmltoenteralink .= '<td><label for="' . $key . '_' . $objp->rowid . '">' . $objp->ref . '</label></td>';
+			$htmltoenteralink .= '<td>';
+			if (!$alreadylinked) {
+				$htmltoenteralink .= '<label for="' . $key . '_' . $objp->rowid . '">';
+			}
+			$htmltoenteralink .= $objp->ref;
+			if (!$alreadylinked) {
+				$htmltoenteralink .= '</label>';
+			}
+			$htmltoenteralink .= '</td>';
 			$htmltoenteralink .= '<td>' . (!empty($objp->ref_client) ? $objp->ref_client : (!empty($objp->ref_supplier) ? $objp->ref_supplier : '')) . '</td>';
 			$htmltoenteralink .= '<td class="right">';
 			if ($possiblelink['label'] == 'LinkToContract') {
@@ -4039,10 +4050,11 @@ class Form
 
 		$maxlengtharticle = getDolGlobalInt('PRODUCT_MAX_LENGTH_COMBO', 48);
 
-		$label = $objp->label;
+		$productlabel = $objp->label;
 		if (!empty($objp->label_translated)) {
-			$label = $objp->label_translated;
+			$productlabel = $objp->label_translated;
 		}
+		$label = $productlabel;
 		if (!empty($filterkey) && $filterkey != '') {
 			$label = preg_replace('/(' . preg_quote($filterkey, '/') . ')/i', '<strong>$1</strong>', $label, 1);
 		}
@@ -4118,18 +4130,19 @@ class Form
 			}
 		}
 
-		// Set $labeltoshow
-		$labeltoshow = '';
-		$labeltoshow .= $objp->ref;
+		// Set full plain label for the native <option> text. Select2 uses this text
+		// as its search corpus, while data-html below keeps the visible label short.
+		$labeltosearch = '';
+		$labeltosearch .= $objp->ref;
 		if (!empty($objp->custref)) {
-			$labeltoshow .= ' (' . $objp->custref . ')';
+			$labeltosearch .= ' (' . $objp->custref . ')';
 		}
 		if ($outbarcode) {
-			$labeltoshow .= ' (' . $outbarcode . ')';
+			$labeltosearch .= ' (' . $outbarcode . ')';
 		}
-		$labeltoshow .= ' - ' . dol_trunc($label, $maxlengtharticle);
+		$labeltosearch .= ' - ' . $productlabel;
 		if ($outorigin && getDolGlobalString('PRODUCT_SHOW_ORIGIN_IN_COMBO')) {
-			$labeltoshow .= ' (' . getCountry($outorigin, '1') . ')';
+			$labeltosearch .= ' (' . getCountry($outorigin, '1') . ')';
 		}
 
 		// Set $labltoshowhtml
@@ -4301,6 +4314,10 @@ class Form
 			$outdefault_vat_code = $objp->default_vat_code;
 		}
 
+		$optiontext = $labeltosearch.$outvalUnits.$labeltoshowprice.$labeltoshowstock;
+		$optionhtml = $labeltoshowhtml.$outvalUnits.$labeltoshowhtmlprice.$labeltoshowhtmlstock;
+		$optionhtmlforattribute = dol_escape_htmltag($optionhtml, 0, 0, '', 0, 1);
+
 		// Build options
 		$opt = '<option value="' . $objp->rowid . '"';
 		$opt .= ($objp->rowid == $selected) ? ' selected' : '';
@@ -4308,35 +4325,33 @@ class Form
 			$opt .= ' pbq="' . $objp->price_by_qty_rowid . '" data-pbq="' . $objp->price_by_qty_rowid . '" data-pbqup="' . $objp->price_by_qty_unitprice . '" data-pbqbase="' . $objp->price_by_qty_price_base_type . '" data-pbqqty="' . $objp->price_by_qty_quantity . '" data-pbqpercent="' . $objp->price_by_qty_remise_percent . '"';
 		}
 		if (getDolGlobalString('PRODUIT_TEXTS_IN_THIRDPARTY_LANGUAGE')) {
-			$opt .= ' data-labeltrans="' . $outlabel_translated . '"';
+			$opt .= ' data-labeltrans="' . dol_escape_htmltag($outlabel_translated, 0, 0, '', 0, 1) . '"';
 			$opt .= ' data-desctrans="' . dol_escape_htmltag($outdesc_translated) . '"';
 		}
 
 		if ($stocktag == 1) {
-			$opt .= ' class="product_line_stock_ok" data-html="'.$labeltoshowhtml.$outvalUnits.$labeltoshowhtmlprice.dolPrintHTMLForAttribute($labeltoshowhtmlstock).'"';
+			$opt .= ' class="product_line_stock_ok"';
 			//$opt .= ' class="product_line_stock_ok"';
 		}
 		if ($stocktag == -1) {
-			$opt .= ' class="product_line_stock_too_low" data-html="'.$labeltoshowhtml.$outvalUnits.$labeltoshowhtmlprice.dolPrintHTMLForAttribute($labeltoshowhtmlstock).'"';
+			$opt .= ' class="product_line_stock_too_low"';
 			//$opt .= ' class="product_line_stock_too_low"';
 		}
+		$opt .= ' data-html="'.$optionhtmlforattribute.'" data-select-html="'.$optionhtmlforattribute.'"';
 
 		$opt .= '>';
 
 		// Ref, barcode, country
-		$opt .= $labeltoshow;
+		$opt .= dol_escape_htmltag($optiontext, 0, 0, '', 0, 1);
 		$outval .= $labeltoshowhtml;
 
 		// Units
-		$opt .= $outvalUnits;
 		$outval .= $outvalUnits;
 
 		// Price
-		$opt .= $labeltoshowprice;
 		$outval .= $labeltoshowhtmlprice;
 
 		// Stock
-		$opt .= $labeltoshowstock;
 		$outval .= $labeltoshowhtmlstock;
 
 
@@ -4875,11 +4890,11 @@ class Form
 
 				// Example of var_dump $outarray
 				// array(1) {[0]=>array(6) {[key"]=>string(1) "2" ["value"]=>string(3) "ppp"
-				//           ["label"]=>string(76) "ppp (<strong>f</strong>ff2) - ppp - 20,00 Euros/1unité (20,00 Euros/unité)"
+				//           ["label"]=>string(76) "ppp (<strong>f</strong>ff2) - ppp - 20,00 Euros/unit (20,00 Euros/unit)"
 				//      	 ["qty"]=>string(1) "1" ["discount"]=>string(1) "0" ["disabled"]=>bool(false)
 				//}
 				//var_dump($outval); var_dump(utf8_check($outval)); var_dump(json_encode($outval));
-				//$outval=array('label'=>'ppp (<strong>f</strong>ff2) - ppp - 20,00 Euros/ Unité (20,00 Euros/unité)');
+				//$outval=array('label'=>'ppp (<strong>f</strong>ff2) - ppp - 20,00 Euros/ Unit (20,00 Euros/unit)');
 				//var_dump($outval); var_dump(utf8_check($outval)); var_dump(json_encode($outval));
 
 				$i++;
@@ -5137,6 +5152,7 @@ class Form
 				$i++;
 			}
 
+			// @phan-suppress-next-line PhanTypeMismatchProperty PhanTypeMismatchDimFetch
 			$this->cache_availability = dol_sort_array($this->cache_availability, 'position', 'asc', 0, 0, 1);
 
 			return $num;
@@ -5538,7 +5554,7 @@ class Form
 	public function select_types_paiements($selected = '', $htmlname = 'paiementtype', $filtertype = '', $format = 0, $empty = 1, $noadmininfo = 0, $maxlength = 0, $active = 1, $morecss = '', $nooutput = 0)
 	{
 		// phpcs:enable
-		global $langs, $user, $conf;
+		global $langs, $user;
 
 		$out = '';
 
@@ -6452,6 +6468,7 @@ class Form
 
 
 		$output = '<select class="flat minwidth100' . ($morecss ? ' ' . $morecss : '') . '" name="' . $htmlname . '" id="' . $htmlname . '">';
+		$num = 0;
 		if (is_array($cate_arbo)) {
 			$num = count($cate_arbo);
 
@@ -6479,7 +6496,12 @@ class Form
 					$output .= '<option ' . $add . 'value="' . $cate_arbo[$key]['id'] . '"';
 					$output .= ' data-html="' . dol_escape_htmltag($labeltoshow) . '"';
 					$output .= '>';
-					$output .= dol_trunc($cate_arbo[$key]['fulllabel'], $maxlength, 'middle');
+					// The visible (truncated) label is rendered via data-html in
+					// templateResult of the select2 combobox; the bare option text
+					// must keep the full label so that the select2 search matcher
+					// (ajax_combobox in core/lib/ajax.lib.php) can find a hit on
+					// characters that lie outside the truncated portion.
+					$output .= dol_escape_htmltag($cate_arbo[$key]['fulllabel']);
 					$output .= '</option>';
 
 					$cate_arbo[$key]['data-html'] = $labeltoshow;
@@ -6489,7 +6511,7 @@ class Form
 		$output .= '</select>';
 		$output .= "\n";
 
-		$this->num = count($cate_arbo);
+		$this->num = $num;
 
 		if ($outputmode == 2) {
 			// TODO: handle error when $cate_arbo is not an array
@@ -7202,7 +7224,12 @@ class Form
 		} else {
 			if ($selected) {
 				$this->load_cache_availability();
-				print $this->cache_availability[$selected]['label'];
+				// @phan-suppress-next-line PhanTypeMismatchProperty
+				if (isset($this->cache_availability[$selected])) {
+					print $this->cache_availability[$selected]['label'];
+				} else {
+					print "&nbsp;";
+				}
 			} else {
 				print "&nbsp;";
 			}
@@ -9294,7 +9321,7 @@ class Form
 		$opt .= $objp->ref;
 		$objRef = $objp->ref;
 		if (!empty($filterkey) && $filterkey != '') {
-			$objRef = preg_replace('/(' . preg_quote($filterkey, '/') . ')/i', '<strong>$1</strong>', $objRef, 1);
+			$objRef = preg_replace('/(' . preg_quote($filterkey, '/') . ')/i', '<strong>$1</strong>', (string) $objRef, 1);
 		}
 
 		$opt .= "</option>\n";
@@ -10625,10 +10652,12 @@ class Form
 	 * @param array<string,array{label:string,checked?:string,enabled?:string,type?:string,langfile?:string,position?:int,help?:string}> 	$array 	Array with array of fields we could show. This array may be modified according to setup of user.
 	 * @param string 		$varpage 	Id of context for page. Can be set by caller with $varpage=(empty($contextpage)?$_SERVER["PHP_SELF"]:$contextpage);
 	 * @param int|string 	$pos 		Position of the colon in list: 1 or 'left' or '' (meaning 'right').
+	 *  @param	int<0,1>	$draganddrop				Enable drag and drop feature (0 by default and drag and drop disabled), !=0 drag and drop enabled
+	 *
 	 * @return string            		HTML multiselect string
 	 * @see selectarray()
 	 */
-	public static function multiSelectArrayWithCheckbox($htmlname, &$array, $varpage, $pos = '')
+	public static function multiSelectArrayWithCheckbox($htmlname, &$array, $varpage, $pos = '', $draganddrop = 0)
 	{
 		global $conf, $langs, $user;
 
@@ -10682,10 +10711,14 @@ class Form
 				}
 
 				// Note: $val['checked'] <> 0 means we must show the field into the combo list  @phan-suppress-next-line PhanTypePossiblyInvalidDimOffset
-				$listoffieldsforselection .= '<li><input type="checkbox" id="checkbox' . $key . '" value="' . $key . '"' . ((!array_key_exists('checked', $val) || empty($val['checked']) || $val['checked'] == '-1') ? '' : ' checked="checked"') . ' data-position="'.(empty($val['position']) ? '' : $val['position']).'" />';
+				$listoffieldsforselection .= '<li '.(!empty($draganddrop) ? 'class="fieldsortable" id="'.$key : '').'"><input type="checkbox" id="checkbox' . $key . '" value="' . $key . '"' . ((!array_key_exists('checked', $val) || empty($val['checked']) || $val['checked'] == '-1') ? '' : ' checked="checked"') . ' data-position="'.(empty($val['position']) ? '' : $val['position']).'" />';
 				$listoffieldsforselection .= '<label for="checkbox' . $key . '" class="paddingleft">';
 				$listoffieldsforselection .= dolPrintHTML(dol_string_nohtmltag($langs->trans($val['label'])));
-				$listoffieldsforselection .= '</label></li>';
+				$listoffieldsforselection .= '</label>';
+				if (!empty($draganddrop)) {
+					$listoffieldsforselection .= img_picto($langs->trans("MoveField", !empty($key) ? $key : 'none'), 'grip_title', 'class="opacitymedium boxhandle hideonsmartphone cursormove marginleftonly"');
+				}
+				$listoffieldsforselection .= '</li>';
 				$listcheckedstring .= (empty($val['checked']) ? '' : $key . ',');
 			}
 		}
@@ -10701,7 +10734,7 @@ class Form
             </dt>
             <dd class="dropdowndd">
                 <div class="multiselectcheckbox'.$htmlname.'">
-                    <ul class="'.$htmlname.(((string) $pos == '1' || (string) $pos == 'left') ? 'left' : '').'">
+                    <ul class="'.$htmlname.(((string) $pos == '1' || (string) $pos == 'left') ? 'left' : '').(!empty($draganddrop) ? ' sortable' : '').'">
                     <li class="liinputsearch">
 						<input class="inputsearch_dropdownselectedfields width90p minwidth200imp" style="width:90%;" type="text" placeholder="'.$langs->trans('Search').'">
 					</li>
@@ -10710,6 +10743,29 @@ class Form
                 </div>
             </dd>
         </dl>
+
+		<script>
+			function updateFieldOrder() {
+				var positionfields = $(".sortable").sortable("toArray");
+				$.ajax({
+					url: \''.DOL_URL_ROOT.'/core/ajax/changepositionfields.php?positionfields=\'+positionfields+\'&token='.newToken().'&action=listafterchangingpositionfields&contextpage='.$varpage.'&userid='.$user->id.'\',
+					async: false,
+					success: function () {
+						// reload page
+						window.location.href = "'.$_SERVER["PHP_SELF"].'";
+					}
+				});
+			}
+			$( ".sortable" ).sortable({
+				handle: \'.boxhandle\',
+				revert: \'invalid\',
+				items: \'.fieldsortable\',
+				stop: function(event, ui) {
+					console.log("We moved box so we call updateBoxOrder with ajax actions");
+					updateFieldOrder();  /* 1 to avoid message after a move */
+				}
+			});
+		</script>
 
         <script nonce="' . getNonce() . '" type="text/javascript">
 			jQuery(document).ready(function () {
@@ -10763,6 +10819,8 @@ class Form
 	 */
 	public function showCategories($id, $type, $rendermode = 0, $nolink = 0)
 	{
+		global $conf;
+
 		include_once DOL_DOCUMENT_ROOT . '/categories/class/categorie.class.php';
 
 		$cat = new Categorie($this->db);
@@ -10788,7 +10846,12 @@ class Form
 					$sfortag .= '>';
 					if ($rendermode == 1) {
 						$sfortag .= '<a href="'.DOL_URL_ROOT.'/categories/viewcat.php?id='.((int) $c->id).'&type='.urlencode($c->type).'" class="'.$forced_color.'">';
-						$sfortag .= img_picto('', 'category', 'class="paddingright"').$c->label;
+						$sfortag .= img_picto('', 'category', 'class="paddingright"');
+						if ($conf->dol_optimize_smallscreen) {
+							$sfortag .= dolPrintHTML(dol_trunc($c->label, 8));
+						} else {
+							$sfortag .= dolPrintHTML($c->label);
+						}
 						$sfortag .= '</a>';
 					} else {
 						$sfortag .= $way;
@@ -11567,7 +11630,9 @@ class Form
 				}
 				$extralanguages->fetch_name_extralanguages('societe');
 
-				if (!empty($extralanguages->attributes['societe']['name'])) {
+				// Guard against PHP 8 'Undefined array key' when MAIN_USE_ALTERNATE_TRANSLATION_FOR
+				// is not configured and fetch_name_extralanguages() leaves attributes empty (issue #34596).
+				if (!empty($extralanguages->attributes['societe']) && !empty($extralanguages->attributes['societe']['name'])) {
 					$object->fetchValuesForExtraLanguages();
 
 					$htmltext = '';
