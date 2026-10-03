@@ -332,6 +332,7 @@ a.top-menu-dropdown-link {
 
 #topmenu-tool,
 #topmenu-global-search-dropdown,
+#topmenu-ai-dropdown,
 #topmenu-quickadd-dropdown,
 #topmenu-bookmark-dropdown,
 #topmenu-uploadfile-dropdown,
@@ -453,7 +454,7 @@ a.dropdown-item {
  * SELECT FIELDS
  */
 
-li.liinputsearch {
+li.liinputsearch, div.liinputsearch {
 	position: sticky;
 	display: block;
 	top: 0;
